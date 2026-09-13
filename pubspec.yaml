@@ -1,0 +1,15 @@
+name: opencode_auth
+description: A bounded, authenticated OpenCode Go transport for native Dart clients.
+version: 0.1.0
+repository: https://github.com/mattsp1290/opencode-auth-dart
+issue_tracker: https://github.com/mattsp1290/opencode-auth-dart/issues
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  http: ^1.6.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.26.0
