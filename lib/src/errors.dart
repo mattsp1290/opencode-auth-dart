@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io' show HttpDate;
+
 /// Base type for all failures intentionally exposed by this package.
 sealed class OpenCodeAuthException implements Exception {
   const OpenCodeAuthException(this.code);
@@ -117,4 +120,76 @@ final class OpenCodeClosedException extends OpenCodeAuthException {
 
   @override
   String toString() => 'OpenCodeClosedException(closed)';
+}
+
+OpenCodeAuthException classifyOpenCodeHttpFailure(
+  int statusCode,
+  List<int> body,
+  String? retryAfter,
+  DateTime Function() clock,
+) {
+  final values = <String>[];
+  try {
+    final decoded = jsonDecode(utf8.decode(body));
+    if (decoded is! Map<String, Object?> ||
+        decoded['error'] is! Map<String, Object?>) {
+      return OpenCodeHttpException(statusCode);
+    }
+    final error = decoded['error']! as Map<String, Object?>;
+    for (final field in <String>['type', 'code']) {
+      if (!error.containsKey(field)) continue;
+      final value = error[field];
+      if (value is! String || value.isEmpty || value.length > 128) {
+        return OpenCodeHttpException(statusCode);
+      }
+      values.add(value);
+    }
+  } catch (_) {
+    return OpenCodeHttpException(statusCode);
+  }
+  if (values.isEmpty) return OpenCodeHttpException(statusCode);
+  final categories = values.map(_errorCategory).toSet();
+  if (categories.contains(null) || categories.length != 1) {
+    return OpenCodeHttpException(statusCode);
+  }
+  return switch (categories.single) {
+    'auth' => const OpenCodeAuthenticationException(),
+    'quota' => const OpenCodeQuotaException(),
+    'rate' => OpenCodeRateLimitException(
+      retryAfter: _parseRetryAfter(retryAfter, clock),
+    ),
+    'model' => const OpenCodeModelException(),
+    'policy' => const OpenCodePolicyException(),
+    _ => OpenCodeHttpException(statusCode),
+  };
+}
+
+String? _errorCategory(String value) => switch (value) {
+  'AuthError' || 'authentication_error' || 'invalid_api_key' => 'auth',
+  'CreditsError' ||
+  'MonthlyLimitError' ||
+  'UserLimitError' ||
+  'GoUsageLimitError' ||
+  'FreeUsageLimitError' ||
+  'BlackUsageLimitError' ||
+  'insufficient_quota' => 'quota',
+  'RateLimitError' || 'rate_limit_error' => 'rate',
+  'ModelError' => 'model',
+  'RegionError' || 'DataPolicyError' => 'policy',
+  _ => null,
+};
+
+Duration? _parseRetryAfter(String? value, DateTime Function() clock) {
+  if (value == null || value.isEmpty || value.length > 128) return null;
+  final seconds = int.tryParse(value);
+  if (seconds != null) {
+    return seconds < 0 || seconds > 86400 ? null : Duration(seconds: seconds);
+  }
+  try {
+    final delta = HttpDate.parse(value).toUtc().difference(clock().toUtc());
+    if (delta.isNegative || delta > const Duration(days: 1)) return null;
+    return Duration(seconds: delta.inSeconds);
+  } catch (_) {
+    return null;
+  }
 }
