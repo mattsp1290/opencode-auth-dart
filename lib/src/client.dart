@@ -130,7 +130,7 @@ final class OpenCodeAuthClient {
       }
       final bytes = await readOpenCodeBounded(
         response.stream,
-        8 * 1024 * 1024,
+        _options.maxResponseBytes,
         operation,
       );
       return decodeOpenCodeCatalog(bytes);

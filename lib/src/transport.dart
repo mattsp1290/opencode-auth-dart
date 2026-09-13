@@ -81,6 +81,7 @@ Future<List<int>> readOpenCodeBounded(
     },
     cancelOnError: true,
   );
+  if (completed.isCompleted) cancelSubscription();
   if (operation.isAborted) operation.onAbort?.call();
   return completed.future;
 }

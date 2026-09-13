@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:http/http.dart' as http;
 import 'package:opencode_auth/opencode_auth.dart';
+import 'package:opencode_auth/src/transport.dart';
 import 'package:test/test.dart';
 
 import 'support/recording_client.dart';
@@ -191,6 +192,24 @@ void main() {
       <int>[1],
     ]);
     await subscription.cancel();
+    await upstream.close();
+  });
+
+  test('bounded reads cancel a synchronous overflowing stream', () async {
+    final cancellation = Completer<void>();
+    late final StreamController<List<int>> upstream;
+    upstream = StreamController<List<int>>(
+      sync: true,
+      onListen: () => upstream.add(const <int>[1, 2]),
+      onCancel: () => cancellation.complete(),
+    );
+    final operation = OpenCodeOperation(() {});
+
+    await expectLater(
+      readOpenCodeBounded(upstream.stream, 1, operation),
+      throwsA(isA<OpenCodeResponseLimitException>()),
+    );
+    await cancellation.future;
     await upstream.close();
   });
 

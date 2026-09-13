@@ -102,4 +102,19 @@ void main() {
     );
     await oversized.close();
   });
+
+  test('catalog honors a caller-provided response limit', () async {
+    final context = createTestClient(
+      (_) => response(200, <List<int>>[
+        utf8.encode('{"object":"list","data":[]}'),
+      ]),
+      maxResponseBytes: 8,
+    );
+    addTearDown(context.close);
+
+    await expectLater(
+      context.auth.listModels(),
+      throwsA(isA<OpenCodeResponseLimitException>()),
+    );
+  });
 }
