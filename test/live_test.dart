@@ -61,7 +61,6 @@ void main() {
                   'path': {'type': 'string'},
                 },
                 'required': ['path'],
-                'additionalProperties': false,
               },
             },
           },
@@ -91,7 +90,11 @@ void main() {
         'model': _model,
         'messages': [
           initialMessage,
-          assistant,
+          {
+            'role': 'assistant',
+            'content': assistant['content'],
+            'tool_calls': toolCalls,
+          },
           {
             'role': 'tool',
             'tool_call_id': toolCallId,
