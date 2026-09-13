@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show HttpDate;
-import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 
@@ -15,12 +14,13 @@ import 'response.dart';
 
 final class OpenCodeAuthClient {
   OpenCodeAuthClient(OpenCodeAuthOptions options)
-    : this._(options, options.client);
+    : this._(options, options.client, DateTime.now);
 
-  OpenCodeAuthClient._(this._options, this._client);
+  OpenCodeAuthClient._(this._options, this._client, this._clock);
 
   final OpenCodeAuthOptions _options;
   final http.BaseClient _client;
+  final DateTime Function() _clock;
   final Set<_Operation> _operations = <_Operation>{};
   bool _closed = false;
   Future<void>? _closeFuture;
@@ -49,7 +49,7 @@ final class OpenCodeAuthClient {
           ..bodyBytes = inferenceRequest.body;
     request.headers
       ..addAll(inferenceRequest.headers)
-      ..['authorization'] = 'Bearer ${_options.apiKey}'
+      ..['authorization'] = 'Bearer ${openCodeTransportApiKey(_options)}'
       ..['user-agent'] = _options.userAgent
       ..['x-opencode-session'] = inferenceRequest.conversationId;
 
@@ -70,6 +70,7 @@ final class OpenCodeAuthClient {
           response.statusCode,
           bytes,
           response.headers['retry-after'],
+          _clock,
         );
       } on OpenCodeAuthException {
         rethrow;
@@ -117,6 +118,7 @@ final class OpenCodeAuthClient {
           response.statusCode,
           bytes,
           response.headers['retry-after'],
+          _clock,
         );
       }
       final bytes = await _readBounded(
@@ -190,8 +192,11 @@ final class OpenCodeAuthClient {
       }
       sent = _client.send(request);
     } on OpenCodeAuthException {
+      operation.onAbort = null;
+      operation.finish();
       rethrow;
     } catch (_) {
+      operation.onAbort = null;
       operation.finish();
       throw const OpenCodeNetworkException();
     }
@@ -257,41 +262,48 @@ final class OpenCodeAuthClient {
     controller.onResume = () => upstream?.resume();
     controller.onCancel = () => cancel(emitError: false);
 
-    upstream = response.stream.listen(
-      (chunk) {
-        if (terminal) return;
-        byteCount += chunk.length;
-        if (byteCount > _options.maxResponseBytes) {
-          terminal = true;
-          operation.abort();
-          controller.addError(const OpenCodeResponseLimitException());
-          unawaited(controller.close());
-          final cancellation = upstream?.cancel();
-          if (cancellation != null) {
-            unawaited(cancellation.catchError((Object _) {}));
+    try {
+      upstream = response.stream.listen(
+        (chunk) {
+          if (terminal) return;
+          byteCount += chunk.length;
+          if (byteCount > _options.maxResponseBytes) {
+            terminal = true;
+            operation.abort();
+            controller.addError(const OpenCodeResponseLimitException());
+            unawaited(controller.close());
+            final cancellation = upstream?.cancel();
+            if (cancellation != null) {
+              unawaited(cancellation.catchError((Object _) {}));
+            }
+            operation.finish();
+            return;
           }
-          operation.finish();
-          return;
-        }
-        controller.add(chunk);
-      },
-      onError: (Object _, StackTrace _) {
-        if (terminal) return;
-        controller.addError(
-          operation.isAborted
-              ? const OpenCodeCancelledException()
-              : const OpenCodeNetworkException(),
-        );
-        unawaited(controller.close());
-        finish();
-      },
-      onDone: () {
-        if (terminal) return;
-        unawaited(controller.close());
-        finish();
-      },
-      cancelOnError: true,
-    );
+          controller.add(chunk);
+        },
+        onError: (Object _, StackTrace _) {
+          if (terminal) return;
+          controller.addError(
+            operation.isAborted
+                ? const OpenCodeCancelledException()
+                : const OpenCodeNetworkException(),
+          );
+          unawaited(controller.close());
+          finish();
+        },
+        onDone: () {
+          if (terminal) return;
+          unawaited(controller.close());
+          finish();
+        },
+        cancelOnError: true,
+      );
+    } catch (_) {
+      operation.onAbort = null;
+      operation.finish();
+      unawaited(controller.close());
+      throw const OpenCodeNetworkException();
+    }
 
     return OpenCodeStreamResponse(
       statusCode: response.statusCode,
@@ -307,8 +319,9 @@ final class OpenCodeAuthClient {
 /// Internal test seam. It is intentionally omitted from the public barrel.
 OpenCodeAuthClient createOpenCodeAuthClientForTesting(
   OpenCodeAuthOptions options,
-  http.BaseClient executor,
-) => OpenCodeAuthClient._(options, executor);
+  http.BaseClient executor, {
+  DateTime Function()? clock,
+}) => OpenCodeAuthClient._(options, executor, clock ?? DateTime.now);
 
 final class _Operation {
   _Operation(this._onFinished);
@@ -448,49 +461,37 @@ OpenCodeAuthException _classifyHttp(
   int statusCode,
   List<int> body,
   String? retryAfter,
+  DateTime Function() clock,
 ) {
-  String? type;
-  String? code;
+  final values = <String>[];
   try {
     final decoded = jsonDecode(utf8.decode(body));
-    if (decoded is Map<String, Object?>) {
-      final error = decoded['error'];
-      if (error is Map<String, Object?>) {
-        if (error['type'] is String) type = error['type']! as String;
-        if (error['code'] is String) code = error['code']! as String;
+    if (decoded is! Map<String, Object?> ||
+        decoded['error'] is! Map<String, Object?>) {
+      return OpenCodeHttpException(statusCode);
+    }
+    final error = decoded['error']! as Map<String, Object?>;
+    for (final field in <String>['type', 'code']) {
+      if (!error.containsKey(field)) continue;
+      final value = error[field];
+      if (value is! String || value.isEmpty || value.length > 128) {
+        return OpenCodeHttpException(statusCode);
       }
+      values.add(value);
     }
   } catch (_) {
     return OpenCodeHttpException(statusCode);
   }
-  if (type == null && code == null) return OpenCodeHttpException(statusCode);
-  final categories = <String>{?type, ?code};
-  const auth = {'AuthError', 'authentication_error', 'invalid_api_key'};
-  const quota = {
-    'CreditsError',
-    'MonthlyLimitError',
-    'UserLimitError',
-    'GoUsageLimitError',
-    'FreeUsageLimitError',
-    'BlackUsageLimitError',
-    'insufficient_quota',
-  };
-  const rate = {'RateLimitError', 'rate_limit_error'};
-  const model = {'ModelError'};
-  const policy = {'RegionError', 'DataPolicyError'};
-  final matches = <String>{
-    if (categories.any(auth.contains)) 'auth',
-    if (categories.any(quota.contains)) 'quota',
-    if (categories.any(rate.contains)) 'rate',
-    if (categories.any(model.contains)) 'model',
-    if (categories.any(policy.contains)) 'policy',
-  };
-  if (matches.length != 1) return OpenCodeHttpException(statusCode);
-  return switch (matches.single) {
+  if (values.isEmpty) return OpenCodeHttpException(statusCode);
+  final categories = values.map(_errorCategory).toSet();
+  if (categories.contains(null) || categories.length != 1) {
+    return OpenCodeHttpException(statusCode);
+  }
+  return switch (categories.single) {
     'auth' => const OpenCodeAuthenticationException(),
     'quota' => const OpenCodeQuotaException(),
     'rate' => OpenCodeRateLimitException(
-      retryAfter: _parseRetryAfter(retryAfter),
+      retryAfter: _parseRetryAfter(retryAfter, clock),
     ),
     'model' => const OpenCodeModelException(),
     'policy' => const OpenCodePolicyException(),
@@ -498,11 +499,23 @@ OpenCodeAuthException _classifyHttp(
   };
 }
 
-Duration? _parseRetryAfter(String? value) {
-  if (value == null ||
-      value.isEmpty ||
-      value.length > 128 ||
-      value.contains(',')) {
+String? _errorCategory(String value) => switch (value) {
+  'AuthError' || 'authentication_error' || 'invalid_api_key' => 'auth',
+  'CreditsError' ||
+  'MonthlyLimitError' ||
+  'UserLimitError' ||
+  'GoUsageLimitError' ||
+  'FreeUsageLimitError' ||
+  'BlackUsageLimitError' ||
+  'insufficient_quota' => 'quota',
+  'RateLimitError' || 'rate_limit_error' => 'rate',
+  'ModelError' => 'model',
+  'RegionError' || 'DataPolicyError' => 'policy',
+  _ => null,
+};
+
+Duration? _parseRetryAfter(String? value, DateTime Function() clock) {
+  if (value == null || value.isEmpty || value.length > 128) {
     return null;
   }
   final seconds = int.tryParse(value);
@@ -512,9 +525,9 @@ Duration? _parseRetryAfter(String? value) {
   }
   try {
     final date = HttpDate.parse(value).toUtc();
-    final delta = date.difference(DateTime.now().toUtc());
-    if (delta.isNegative) return null;
-    return Duration(seconds: math.min(delta.inSeconds, 86400));
+    final delta = date.difference(clock().toUtc());
+    if (delta.isNegative || delta > const Duration(days: 1)) return null;
+    return Duration(seconds: delta.inSeconds);
   } catch (_) {
     return null;
   }

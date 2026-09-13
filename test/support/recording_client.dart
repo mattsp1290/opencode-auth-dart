@@ -47,6 +47,7 @@ TestClientContext createTestClient(
   int maxRequestBytes = 8 * 1024 * 1024,
   int maxResponseBytes = 8 * 1024 * 1024,
   String? serviceRoot,
+  DateTime Function()? clock,
 }) {
   final ioClient = IOClient(HttpClient());
   final options = OpenCodeAuthOptions(
@@ -58,8 +59,33 @@ TestClientContext createTestClient(
     maxResponseBytes: maxResponseBytes,
   );
   final recording = RecordingClient(handler);
+  return _testContext(options, recording, ioClient, clock);
+}
+
+TestClientContext createTestClientWithExecutor(
+  http.BaseClient executor, {
+  DateTime Function()? clock,
+}) {
+  final ioClient = IOClient(HttpClient());
+  final options = OpenCodeAuthOptions(
+    apiKey: 'test-secret-canary',
+    client: ioClient,
+    userAgent: 'rook-test/1.0',
+  );
+  return _testContext(options, executor, ioClient, clock);
+}
+
+TestClientContext _testContext(
+  OpenCodeAuthOptions options,
+  http.BaseClient executor,
+  IOClient ioClient,
+  DateTime Function()? clock,
+) {
+  final recording = executor is RecordingClient
+      ? executor
+      : RecordingClient((_) => throw StateError('not a recording executor'));
   return TestClientContext(
-    createOpenCodeAuthClientForTesting(options, recording),
+    createOpenCodeAuthClientForTesting(options, executor, clock: clock),
     recording,
     ioClient,
   );

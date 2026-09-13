@@ -13,7 +13,7 @@ final class OpenCodeAuthOptions {
     String? serviceRoot,
     this.maxRequestBytes = openCodeAbsoluteMaxRequestBytes,
     this.maxResponseBytes = 8 * 1024 * 1024,
-  }) : apiKey = _validateApiKey(apiKey),
+  }) : _apiKey = _validateApiKey(apiKey),
        userAgent = _validateUserAgent(userAgent),
        serviceRoot = _validateRoot(
          serviceRoot ?? 'https://opencode.ai/zen/go/v1',
@@ -28,7 +28,10 @@ final class OpenCodeAuthOptions {
     }
   }
 
-  final String apiKey;
+  // Deliberately private: the exported options surface must not expose a raw
+  // credential. The transport obtains it through the source-internal helper
+  // below, which is not exported from `package:opencode_auth`.
+  final String _apiKey;
   final IOClient client;
   final String userAgent;
   final Uri serviceRoot;
@@ -40,6 +43,9 @@ final class OpenCodeAuthOptions {
       'OpenCodeAuthOptions(serviceRoot: $serviceRoot, maxRequestBytes: '
       '$maxRequestBytes, maxResponseBytes: $maxResponseBytes)';
 }
+
+/// Source-internal transport capability; intentionally omitted from the barrel.
+String openCodeTransportApiKey(OpenCodeAuthOptions options) => options._apiKey;
 
 String _validateApiKey(String value) {
   if (value.isEmpty || value.trim() != value || _hasAsciiControl(value)) {

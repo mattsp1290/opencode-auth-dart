@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -51,5 +52,54 @@ void main() {
       );
       await context.close();
     }
+  });
+
+  test('catalog cancellation while awaiting headers settles locally', () async {
+    final pending = Completer<http.StreamedResponse>();
+    final source = OpenCodeCancellationSource();
+    final context = createTestClient((_) => pending.future);
+    addTearDown(() {
+      if (!pending.isCompleted) {
+        pending.complete(response(200, const <List<int>>[]));
+      }
+      return context.close();
+    });
+    final result = context.auth.listModels(cancellationToken: source.token);
+    final expectation = expectLater(
+      result,
+      throwsA(isA<OpenCodeCancelledException>()),
+    );
+    await Future<void>.delayed(Duration.zero);
+    source.cancel();
+    await expectation;
+    expect(context.recording.requests, hasLength(1));
+  });
+
+  test('catalog stream failures and oversized bodies are bounded', () async {
+    final failingStream = StreamController<List<int>>();
+    final failing = createTestClient(
+      (_) => http.StreamedResponse(failingStream.stream, 200),
+    );
+    final failed = failing.auth.listModels();
+    final failedExpectation = expectLater(
+      failed,
+      throwsA(isA<OpenCodeNetworkException>()),
+    );
+    failingStream.addError(StateError('test-secret-canary'));
+    await failingStream.close();
+    await failedExpectation;
+    await failing.close();
+
+    final oversized = createTestClient(
+      (_) => response(200, <List<int>>[
+        List<int>.filled(8 * 1024 * 1024, 1),
+        const <int>[2],
+      ]),
+    );
+    await expectLater(
+      oversized.auth.listModels(),
+      throwsA(isA<OpenCodeResponseLimitException>()),
+    );
+    await oversized.close();
   });
 }

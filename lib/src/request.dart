@@ -7,12 +7,13 @@ import 'protocol.dart';
 
 final class OpenCodeInferenceRequest {
   OpenCodeInferenceRequest({
-    required this.protocol,
+    required OpenCodeProtocol protocol,
     required String conversationId,
     required List<int> body,
     Map<String, String> headers = const <String, String>{},
     this.cancellationToken,
-  }) : conversationId = _validateConversationId(conversationId),
+  }) : protocol = _requireSupportedProtocol(protocol),
+       conversationId = _validateConversationId(conversationId),
        body = _copyBody(body),
        headers = _copyHeaders(headers);
 
@@ -25,6 +26,11 @@ final class OpenCodeInferenceRequest {
   @override
   String toString() =>
       'OpenCodeInferenceRequest(protocol: $protocol, bodyBytes: ${body.length})';
+}
+
+OpenCodeProtocol _requireSupportedProtocol(OpenCodeProtocol value) {
+  if (!value.isSupported) throw const UnsupportedProtocolException();
+  return value;
 }
 
 String _validateConversationId(String value) {

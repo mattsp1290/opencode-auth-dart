@@ -127,4 +127,107 @@ void main() {
     await expectation;
     expect(context.recording.requests, hasLength(1));
   });
+
+  test(
+    'synchronous executor failure disarms cancellation and closes locally',
+    () async {
+      final context = createTestClientWithExecutor(
+        _SynchronousThrowingClient(),
+      );
+      addTearDown(context.close);
+      final source = OpenCodeCancellationSource();
+      await expectLater(
+        context.auth.send(_request(token: source.token)),
+        throwsA(isA<OpenCodeNetworkException>()),
+      );
+      source.cancel();
+      await Future<void>.delayed(Duration.zero);
+      await context.auth.close().timeout(const Duration(seconds: 1));
+    },
+  );
+
+  test(
+    'synchronous upstream listen failure is redacted and does not strand close',
+    () async {
+      final context = createTestClient(
+        (_) => http.StreamedResponse(_ThrowingListenStream(), 200),
+      );
+      addTearDown(context.close);
+      await expectLater(
+        context.auth.send(_request()),
+        throwsA(isA<OpenCodeNetworkException>()),
+      );
+      await context.auth.close().timeout(const Duration(seconds: 1));
+    },
+  );
+
+  test('cancellation between chunks emits one typed terminal error', () async {
+    final upstream = StreamController<List<int>>();
+    final source = OpenCodeCancellationSource();
+    final context = createTestClient(
+      (_) => http.StreamedResponse(upstream.stream, 200),
+    );
+    addTearDown(context.close);
+    final result = await context.auth.send(_request(token: source.token));
+    final received = <List<int>>[];
+    final terminal = Completer<Object>();
+    final subscription = result.stream.listen(
+      (chunk) {
+        received.add(chunk);
+        source.cancel();
+      },
+      onError: (Object error) {
+        if (!terminal.isCompleted) terminal.complete(error);
+      },
+    );
+    upstream
+      ..add(const <int>[1])
+      ..add(const <int>[2]);
+    await expectLater(
+      terminal.future,
+      completion(isA<OpenCodeCancelledException>()),
+    );
+    expect(received, [
+      <int>[1],
+    ]);
+    await subscription.cancel();
+    await upstream.close();
+  });
+
+  test(
+    'paused response cancellation and close do not await upstream cancel',
+    () async {
+      final neverCancels = Completer<void>();
+      final upstream = StreamController<List<int>>(
+        onCancel: () => neverCancels.future,
+      );
+      final context = createTestClient(
+        (_) => http.StreamedResponse(upstream.stream, 200),
+      );
+      final result = await context.auth.send(_request());
+      final subscription = result.stream.listen((_) {})..pause();
+      await result.cancel().timeout(const Duration(seconds: 1));
+      await context.auth.close().timeout(const Duration(seconds: 1));
+      neverCancels.complete();
+      await subscription.cancel();
+      await upstream.close();
+      context.ioClient.close();
+    },
+  );
+}
+
+final class _SynchronousThrowingClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      throw StateError('test-secret-canary');
+}
+
+final class _ThrowingListenStream extends Stream<List<int>> {
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int>)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => throw StateError('test-secret-canary');
 }

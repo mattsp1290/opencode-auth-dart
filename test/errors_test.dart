@@ -88,4 +88,72 @@ void main() {
       throwsA(isA<OpenCodeHttpException>()),
     );
   });
+
+  test(
+    'unknown, malformed, and oversized classifier fields remain unknown',
+    () async {
+      for (final envelope in <String>[
+        '{"error":{"type":"AuthError","code":"future_category"}}',
+        '{"error":{"type":"AuthError","code":42}}',
+        '{"error":{"type":42,"code":"RateLimitError"}}',
+        '{"error":{"type":"${'a' * 129}"}}',
+      ]) {
+        final context = createTestClient(
+          (_) => response(400, <List<int>>[utf8.encode(envelope)]),
+        );
+        await expectLater(
+          context.auth.send(request()),
+          throwsA(isA<OpenCodeHttpException>()),
+          reason: envelope,
+        );
+        await context.close();
+      }
+    },
+  );
+
+  test('retry-after accepts bounded seconds and HTTP dates only', () async {
+    final now = DateTime.utc(2026, 9, 13, 14, 0, 0);
+    Future<OpenCodeAuthException> sendWith(String retryAfter) async {
+      final context = createTestClient(
+        (_) => response(
+          429,
+          <List<int>>[utf8.encode('{"error":{"type":"RateLimitError"}}')],
+          headers: {'retry-after': retryAfter},
+        ),
+        clock: () => now,
+      );
+      try {
+        await context.auth.send(request());
+        throw StateError('expected a rate limit error');
+      } on OpenCodeAuthException catch (error) {
+        return error;
+      } finally {
+        await context.close();
+      }
+    }
+
+    expect(
+      (await sendWith('5') as OpenCodeRateLimitException).retryAfter,
+      const Duration(seconds: 5),
+    );
+    expect(
+      (await sendWith(
+        'Sun, 13 Sep 2026 14:00:30 GMT',
+      ) as OpenCodeRateLimitException).retryAfter,
+      const Duration(seconds: 30),
+    );
+    for (final value in <String>[
+      '-1',
+      '86401',
+      'Sun, 13 Sep 2026 13:59:59 GMT',
+      'Mon, 14 Sep 2026 14:00:01 GMT',
+      '1, 2',
+    ]) {
+      expect(
+        (await sendWith(value) as OpenCodeRateLimitException).retryAfter,
+        isNull,
+        reason: value,
+      );
+    }
+  });
 }

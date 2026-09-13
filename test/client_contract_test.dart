@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:http/http.dart' as http;
 import 'package:opencode_auth/opencode_auth.dart';
@@ -63,7 +64,7 @@ void main() {
   });
 
   test(
-    'unsupported protocols and initial cancellation never dispatch',
+    'unsupported protocols do not inspect request bodies or dispatch',
     () async {
       final context = createTestClient(
         (_) => response(200, const <List<int>>[]),
@@ -73,32 +74,36 @@ void main() {
         OpenCodeProtocol.messages,
         OpenCodeProtocol.responses,
       ]) {
-        await expectLater(
-          context.auth.send(
-            OpenCodeInferenceRequest(
-              protocol: protocol,
-              conversationId: 'conversation',
-              body: const <int>[],
-            ),
+        expect(
+          () => OpenCodeInferenceRequest(
+            protocol: protocol,
+            conversationId: 'conversation',
+            body: _PoisonedBody(),
           ),
           throwsA(isA<UnsupportedProtocolException>()),
         );
       }
-      final source = OpenCodeCancellationSource()..cancel();
-      await expectLater(
-        context.auth.send(
-          OpenCodeInferenceRequest(
-            protocol: OpenCodeProtocol.chatCompletions,
-            conversationId: 'conversation',
-            body: const <int>[],
-            cancellationToken: source.token,
-          ),
-        ),
-        throwsA(isA<OpenCodeCancelledException>()),
-      );
       expect(context.recording.requests, isEmpty);
     },
   );
+
+  test('initial cancellation never dispatches', () async {
+    final context = createTestClient((_) => response(200, const <List<int>>[]));
+    addTearDown(context.close);
+    final source = OpenCodeCancellationSource()..cancel();
+    await expectLater(
+      context.auth.send(
+        OpenCodeInferenceRequest(
+          protocol: OpenCodeProtocol.chatCompletions,
+          conversationId: 'conversation',
+          body: const <int>[],
+          cancellationToken: source.token,
+        ),
+      ),
+      throwsA(isA<OpenCodeCancelledException>()),
+    );
+    expect(context.recording.requests, isEmpty);
+  });
 
   test(
     'close settles a pending send and does not close borrowed clients',
@@ -123,4 +128,19 @@ void main() {
       context.ioClient.close();
     },
   );
+}
+
+final class _PoisonedBody extends ListBase<int> {
+  @override
+  int get length => throw StateError('body must not be inspected');
+
+  @override
+  set length(int value) => throw UnsupportedError('immutable');
+
+  @override
+  int operator [](int index) => throw StateError('body must not be inspected');
+
+  @override
+  void operator []=(int index, int value) =>
+      throw UnsupportedError('immutable');
 }
