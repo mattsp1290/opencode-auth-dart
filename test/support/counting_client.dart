@@ -26,10 +26,6 @@ final class CountingClient extends http.BaseClient {
     _barrier = Completer<void>();
   }
 
-  Future<void> get dispatched => Future<void>.sync(() {
-    if (dispatchCount == 0) throw StateError('No request has been dispatched.');
-  });
-
   void releaseHeldResponse() {
     final barrier = _barrier;
     if (barrier == null || barrier.isCompleted) return;

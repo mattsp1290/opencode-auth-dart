@@ -1,5 +1,8 @@
 title = "opencode_auth secret scanning configuration"
 
+[extend]
+useDefault = true
+
 [allowlist]
 description = "Non-production localhost TLS keys used only by transport fixtures."
 paths = [

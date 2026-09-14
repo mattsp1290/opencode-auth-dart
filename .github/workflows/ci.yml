@@ -23,7 +23,10 @@ jobs:
       - run: dart analyze --fatal-infos
       - run: dart test
       - run: dart doc --validate-links
-      - run: dart pub publish --dry-run
+      - name: Validate publish archive
+        run: |
+          dart pub publish --dry-run | tee publish-dry-run.log
+          ! rg -q '(^|/)doc/api/|(^|/)tool/' publish-dry-run.log
       - name: Verify tracked lockfile
         run: |
           if git check-ignore pubspec.lock; then exit 1; fi

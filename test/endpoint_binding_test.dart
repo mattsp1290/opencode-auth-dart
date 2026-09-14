@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
 import 'package:opencode_auth/opencode_auth.dart';
 import 'package:test/test.dart';
 
@@ -49,6 +51,60 @@ void main() {
     },
   );
 
+  test(
+    'provider cancellation after a first turn never replays a second turn',
+    () async {
+      final secondResponse = Completer<http.StreamedResponse>();
+      var calls = 0;
+      final context = createTestClient((_) {
+        calls += 1;
+        return calls == 1
+            ? response(200, const <List<int>>[])
+            : secondResponse.future;
+      });
+      addTearDown(() async {
+        if (!secondResponse.isCompleted) {
+          secondResponse.complete(response(200, const <List<int>>[]));
+        }
+        await context.close();
+      });
+      final provider = _ProviderAdapter(context.auth);
+      await (await provider.send(body: 'initial-tool-request')).stream
+          .drain<void>();
+
+      final source = OpenCodeCancellationSource();
+      final pending = provider.send(
+        body: 'tool-result-turn',
+        cancellationToken: source.token,
+      );
+      final cancelled = expectLater(
+        pending,
+        throwsA(isA<OpenCodeCancelledException>()),
+      );
+      source.cancel();
+      await cancelled;
+      expect(context.recording.requests, hasLength(2));
+    },
+  );
+
+  test('provider connection loss on a second turn never retries', () async {
+    var calls = 0;
+    final context = createTestClient((_) {
+      calls += 1;
+      if (calls == 1) return response(200, const <List<int>>[]);
+      throw StateError('injected connection loss');
+    });
+    addTearDown(context.close);
+    final provider = _ProviderAdapter(context.auth);
+    await (await provider.send(body: 'initial-tool-request')).stream
+        .drain<void>();
+    await expectLater(
+      provider.send(body: 'tool-result-turn'),
+      throwsA(isA<OpenCodeNetworkException>()),
+    );
+    expect(context.recording.requests, hasLength(2));
+  });
+
   for (final root in <String>[
     'https://example.test/v1',
     'https://api.openai.com/v1',
@@ -95,7 +151,10 @@ final class _ProviderAdapter {
 
   final OpenCodeAuthClient _auth;
 
-  Future<OpenCodeStreamResponse> send({String body = 'request'}) {
+  Future<OpenCodeStreamResponse> send({
+    String body = 'request',
+    OpenCodeCancellationToken? cancellationToken,
+  }) {
     if (_auth.endpointBinding != OpenCodeEndpointBinding.subscriptionGo) {
       throw const _ProviderBindingException();
     }
@@ -105,6 +164,7 @@ final class _ProviderAdapter {
         conversationId: 'provider-conversation',
         body: utf8.encode('{"model":"deepseek-v4-flash","turn":"$body"}'),
         headers: const <String, String>{'content-type': 'application/json'},
+        cancellationToken: cancellationToken,
       ),
     );
   }
