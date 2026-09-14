@@ -21,7 +21,11 @@ trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
 url="https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_${archive}.tar.gz"
 archive_path="$tmpdir/gitleaks.tar.gz"
 curl --fail --location --silent --show-error "$url" --output "$archive_path"
-actual=$(sha256sum "$archive_path" | awk '{print $1}')
+case "$(uname -s)" in
+  Linux) actual=$(sha256sum "$archive_path" | awk '{print $1}') ;;
+  Darwin) actual=$(shasum -a 256 "$archive_path" | awk '{print $1}') ;;
+  *) echo 'no supported SHA-256 utility for this platform' >&2; exit 1 ;;
+esac
 if [ "$actual" != "$checksum" ]; then
   echo 'gitleaks archive checksum mismatch' >&2
   exit 1

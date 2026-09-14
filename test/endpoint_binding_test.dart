@@ -9,18 +9,43 @@ void main() {
   test(
     'provider accepts only the package-owned subscription binding',
     () async {
-      final context = createTestClient(
-        (_) => response(200, const <List<int>>[]),
-      );
+      final sentBodies = <String>[];
+      final context = createTestClient((request) async {
+        final bytes = await request.finalize().fold<List<int>>(
+          <int>[],
+          (all, chunk) => all..addAll(chunk),
+        );
+        sentBodies.add(utf8.decode(bytes));
+        return response(200, const <List<int>>[]);
+      });
       addTearDown(context.close);
 
-      final result = await _ProviderAdapter(context.auth).send();
-      await result.stream.drain<void>();
+      final provider = _ProviderAdapter(context.auth);
+      final first = await provider.send(body: 'initial-tool-request');
+      await first.stream.drain<void>();
+      final second = await provider.send(body: 'tool-result-turn');
+      await second.stream.drain<void>();
       expect(
         context.auth.endpointBinding,
         OpenCodeEndpointBinding.subscriptionGo,
       );
-      expect(context.recording.requests, hasLength(1));
+      expect(context.recording.requests, hasLength(2));
+      expect(
+        context.recording.requests
+            .map((request) => request.headers['x-opencode-session'])
+            .toSet(),
+        {'provider-conversation'},
+      );
+      expect(
+        context.recording.requests
+            .map((request) => request.headers['user-agent'])
+            .toSet(),
+        {'rook-test/1.0'},
+      );
+      expect(sentBodies, [
+        '{"model":"deepseek-v4-flash","turn":"initial-tool-request"}',
+        '{"model":"deepseek-v4-flash","turn":"tool-result-turn"}',
+      ]);
     },
   );
 
@@ -70,7 +95,7 @@ final class _ProviderAdapter {
 
   final OpenCodeAuthClient _auth;
 
-  Future<OpenCodeStreamResponse> send() {
+  Future<OpenCodeStreamResponse> send({String body = 'request'}) {
     if (_auth.endpointBinding != OpenCodeEndpointBinding.subscriptionGo) {
       throw const _ProviderBindingException();
     }
@@ -78,7 +103,7 @@ final class _ProviderAdapter {
       OpenCodeInferenceRequest(
         protocol: OpenCodeProtocol.chatCompletions,
         conversationId: 'provider-conversation',
-        body: utf8.encode('{"model":"deepseek-v4-flash"}'),
+        body: utf8.encode('{"model":"deepseek-v4-flash","turn":"$body"}'),
         headers: const <String, String>{'content-type': 'application/json'},
       ),
     );
