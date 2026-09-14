@@ -1,0 +1,8 @@
+title = "opencode_auth secret scanning configuration"
+
+[allowlist]
+description = "Non-production localhost TLS keys used only by transport fixtures."
+paths = [
+  '''^test/support/localhost-key\.pem$''',
+  '''^example/mobile_smoke/assets/localhost-key\.pem$''',
+]

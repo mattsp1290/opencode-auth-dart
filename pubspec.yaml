@@ -3,6 +3,9 @@ description: A bounded, authenticated OpenCode Go transport for native Dart clie
 version: 0.1.0
 repository: https://github.com/mattsp1290/opencode-auth-dart
 issue_tracker: https://github.com/mattsp1290/opencode-auth-dart/issues
+platforms:
+  android:
+  ios:
 
 environment:
   sdk: ^3.13.0

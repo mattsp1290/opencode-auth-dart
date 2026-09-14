@@ -91,7 +91,7 @@ void main() {
 
     final ioClient = IOClient(HttpClient(context: contexts.client));
     final auth = OpenCodeAuthClient(
-      OpenCodeAuthOptions(
+      OpenCodeAuthOptions.custom(
         apiKey: 'host-injected-key',
         client: ioClient,
         userAgent: 'rook/0.1.0',
@@ -256,13 +256,16 @@ Future<void> _send(
 }) async {
   final ioClient = IOClient(HttpClient(context: context));
   final auth = OpenCodeAuthClient(
-    OpenCodeAuthOptions(
+    OpenCodeAuthOptions.custom(
       apiKey: apiKey,
       client: ioClient,
       userAgent: 'rook/0.1.0',
       serviceRoot: 'https://localhost:$port/zen/go/v1',
     ),
   );
+  if (auth.endpointBinding != OpenCodeEndpointBinding.custom) {
+    throw StateError('The localhost fixture must use a custom binding.');
+  }
   try {
     await (await auth.send(_request(conversationId))).stream.drain<void>();
   } finally {
@@ -282,13 +285,16 @@ OpenCodeInferenceRequest _request(String conversationId, {List<int>? body}) =>
 _OwnedAuth _auth(SecurityContext context, int port) {
   final ioClient = IOClient(HttpClient(context: context));
   final auth = OpenCodeAuthClient(
-    OpenCodeAuthOptions(
+    OpenCodeAuthOptions.custom(
       apiKey: 'host-injected-key',
       client: ioClient,
       userAgent: 'rook/0.1.0',
       serviceRoot: 'https://localhost:$port/zen/go/v1',
     ),
   );
+  if (auth.endpointBinding != OpenCodeEndpointBinding.custom) {
+    throw StateError('The localhost fixture must use a custom binding.');
+  }
   return _OwnedAuth(auth, ioClient);
 }
 

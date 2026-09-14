@@ -3,8 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
-import 'package:opencode_auth/src/client.dart';
-import 'package:opencode_auth/src/options.dart';
+import 'package:opencode_auth/src/auth.dart';
 
 typedef RequestHandler = FutureOr<http.StreamedResponse> Function(
   http.BaseRequest request,
@@ -50,14 +49,22 @@ TestClientContext createTestClient(
   DateTime Function()? clock,
 }) {
   final ioClient = IOClient(HttpClient());
-  final options = OpenCodeAuthOptions(
-    apiKey: 'test-secret-canary',
-    client: ioClient,
-    userAgent: 'rook-test/1.0',
-    serviceRoot: serviceRoot,
-    maxRequestBytes: maxRequestBytes,
-    maxResponseBytes: maxResponseBytes,
-  );
+  final options = serviceRoot == null
+      ? OpenCodeAuthOptions(
+          apiKey: 'test-secret-canary',
+          client: ioClient,
+          userAgent: 'rook-test/1.0',
+          maxRequestBytes: maxRequestBytes,
+          maxResponseBytes: maxResponseBytes,
+        )
+      : OpenCodeAuthOptions.custom(
+          apiKey: 'test-secret-canary',
+          client: ioClient,
+          userAgent: 'rook-test/1.0',
+          serviceRoot: serviceRoot,
+          maxRequestBytes: maxRequestBytes,
+          maxResponseBytes: maxResponseBytes,
+        );
   final recording = RecordingClient(handler);
   return _testContext(options, recording, ioClient, clock);
 }

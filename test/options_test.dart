@@ -16,19 +16,36 @@ void main() {
     String? root,
     int maxRequestBytes = openCodeAbsoluteMaxRequestBytes,
     int maxResponseBytes = 8 * 1024 * 1024,
-  }) => OpenCodeAuthOptions(
-    apiKey: apiKey,
-    client: ioClient,
-    userAgent: userAgent,
-    serviceRoot: root,
-    maxRequestBytes: maxRequestBytes,
-    maxResponseBytes: maxResponseBytes,
-  );
+  }) => root == null
+      ? OpenCodeAuthOptions(
+          apiKey: apiKey,
+          client: ioClient,
+          userAgent: userAgent,
+          maxRequestBytes: maxRequestBytes,
+          maxResponseBytes: maxResponseBytes,
+        )
+      : OpenCodeAuthOptions.custom(
+          apiKey: apiKey,
+          client: ioClient,
+          userAgent: userAgent,
+          serviceRoot: root,
+          maxRequestBytes: maxRequestBytes,
+          maxResponseBytes: maxResponseBytes,
+        );
 
-  test('normalizes a strict HTTPS service root without exposing secrets', () {
+  test('reports binding without exposing a root or secrets', () {
     final value = options(root: 'HTTPS://Example.COM/root/');
-    expect(value.serviceRoot.toString(), 'https://example.com/root');
+    expect(value.endpointBinding, OpenCodeEndpointBinding.custom);
+    expect(options().endpointBinding, OpenCodeEndpointBinding.subscriptionGo);
     expect(value.toString(), isNot(contains('secret')));
+    expect(value.toString(), isNot(contains('example.com')));
+  });
+
+  test('custom construction remains custom for production URL text', () {
+    expect(
+      options(root: 'https://opencode.ai/zen/go/v1').endpointBinding,
+      OpenCodeEndpointBinding.custom,
+    );
   });
 
   test('rejects unsafe keys and user agents with fixed diagnostics', () {

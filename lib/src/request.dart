@@ -2,7 +2,7 @@ import 'dart:collection';
 
 import 'cancellation.dart';
 import 'errors.dart';
-import 'options.dart';
+import 'limits.dart';
 import 'protocol.dart';
 
 final class OpenCodeInferenceRequest {

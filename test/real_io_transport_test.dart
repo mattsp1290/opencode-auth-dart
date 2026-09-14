@@ -40,7 +40,7 @@ void main() {
 
       final ioClient = IOClient(HttpClient(context: clientContext));
       final auth = OpenCodeAuthClient(
-        OpenCodeAuthOptions(
+        OpenCodeAuthOptions.custom(
           apiKey: 'native-test-secret',
           client: ioClient,
           userAgent: 'native-test/1.0',
@@ -91,7 +91,7 @@ void main() {
 
     final ioClient = IOClient(HttpClient(context: clientContext));
     final auth = OpenCodeAuthClient(
-      OpenCodeAuthOptions(
+      OpenCodeAuthOptions.custom(
         apiKey: 'native-test-secret',
         client: ioClient,
         userAgent: 'native-test/1.0',
@@ -144,7 +144,7 @@ void main() {
 
     final ioClient = IOClient(HttpClient(context: clientContext));
     final auth = OpenCodeAuthClient(
-      OpenCodeAuthOptions(
+      OpenCodeAuthOptions.custom(
         apiKey: 'native-test-secret',
         client: ioClient,
         userAgent: 'native-test/1.0',
