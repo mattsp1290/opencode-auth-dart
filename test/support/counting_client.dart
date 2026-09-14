@@ -11,6 +11,7 @@ final class CountingClient extends http.BaseClient {
   final List<String?> _sessions = <String?>[];
   final List<String?> _userAgents = <String?>[];
   Completer<void>? _barrier;
+  Completer<void>? _heldDispatchStarted;
   bool _closed = false;
   int dispatchCount = 0;
 
@@ -24,6 +25,13 @@ final class CountingClient extends http.BaseClient {
   void holdNextResponse() {
     if (_barrier != null) throw StateError('A response is already held.');
     _barrier = Completer<void>();
+    _heldDispatchStarted = Completer<void>();
+  }
+
+  Future<void> get heldDispatchStarted {
+    final started = _heldDispatchStarted;
+    if (started == null) throw StateError('No held dispatch is configured.');
+    return started.future;
   }
 
   void releaseHeldResponse() {
@@ -37,13 +45,14 @@ final class CountingClient extends http.BaseClient {
     dispatchCount += 1;
     _sessions.add(request.headers['x-opencode-session']);
     _userAgents.add(request.headers['user-agent']);
-    final response = await _delegate.send(request);
+    final sent = _delegate.send(request);
     final barrier = _barrier;
     if (barrier != null) {
+      _heldDispatchStarted?.complete();
       _barrier = null;
       await barrier.future;
     }
-    return response;
+    return sent;
   }
 
   @override

@@ -187,6 +187,7 @@ void main() {
         ),
       );
       try {
+        await countingClient.heldDispatchStarted.timeout(_timeout);
         expect(countingClient.dispatchCount, 4);
         source.cancel();
         await expectLater(

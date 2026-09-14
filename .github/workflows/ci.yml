@@ -24,7 +24,9 @@ jobs:
       - run: dart test
       - run: dart doc --validate-links
       - name: Validate publish archive
+        shell: bash
         run: |
+          set -o pipefail
           dart pub publish --dry-run | tee publish-dry-run.log
           ! rg -q '(^|/)doc/api/|(^|/)tool/' publish-dry-run.log
       - name: Verify tracked lockfile
