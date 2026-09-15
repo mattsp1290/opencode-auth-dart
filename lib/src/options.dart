@@ -1,51 +1,62 @@
-import 'package:http/io_client.dart';
+part of 'auth.dart';
 
-import 'errors.dart';
+enum OpenCodeEndpointBinding { subscriptionGo, custom }
 
-const int openCodeAbsoluteMaxRequestBytes = 8 * 1024 * 1024;
-const int openCodeAbsoluteMaxResponseBytes = 32 * 1024 * 1024;
+const _subscriptionGoRoot = 'https://opencode.ai/zen/go/v1';
 
 final class OpenCodeAuthOptions {
   OpenCodeAuthOptions({
     required String apiKey,
     required this.client,
     required String userAgent,
-    String? serviceRoot,
     this.maxRequestBytes = openCodeAbsoluteMaxRequestBytes,
     this.maxResponseBytes = 8 * 1024 * 1024,
   }) : _apiKey = _validateApiKey(apiKey),
        userAgent = _validateUserAgent(userAgent),
-       serviceRoot = _validateRoot(
-         serviceRoot ?? 'https://opencode.ai/zen/go/v1',
-       ) {
-    if (maxRequestBytes <= 0 ||
-        maxRequestBytes > openCodeAbsoluteMaxRequestBytes) {
-      throw const OpenCodeConfigurationException('max_request_bytes');
-    }
-    if (maxResponseBytes <= 0 ||
-        maxResponseBytes > openCodeAbsoluteMaxResponseBytes) {
-      throw const OpenCodeConfigurationException('max_response_bytes');
-    }
+       _serviceRoot = _validateRoot(_subscriptionGoRoot),
+       endpointBinding = OpenCodeEndpointBinding.subscriptionGo {
+    _validateLimits(maxRequestBytes, maxResponseBytes);
   }
 
-  // Deliberately private: the exported options surface must not expose a raw
-  // credential. The transport obtains it through the source-internal helper
-  // below, which is not exported from `package:opencode_auth`.
+  OpenCodeAuthOptions.custom({
+    required String apiKey,
+    required this.client,
+    required String userAgent,
+    required String serviceRoot,
+    this.maxRequestBytes = openCodeAbsoluteMaxRequestBytes,
+    this.maxResponseBytes = 8 * 1024 * 1024,
+  }) : _apiKey = _validateApiKey(apiKey),
+       userAgent = _validateUserAgent(userAgent),
+       _serviceRoot = _validateRoot(serviceRoot),
+       endpointBinding = OpenCodeEndpointBinding.custom {
+    _validateLimits(maxRequestBytes, maxResponseBytes);
+  }
+
   final String _apiKey;
   final IOClient client;
   final String userAgent;
-  final Uri serviceRoot;
+  final Uri _serviceRoot;
+  final OpenCodeEndpointBinding endpointBinding;
   final int maxRequestBytes;
   final int maxResponseBytes;
 
   @override
   String toString() =>
-      'OpenCodeAuthOptions(serviceRoot: $serviceRoot, maxRequestBytes: '
-      '$maxRequestBytes, maxResponseBytes: $maxResponseBytes)';
+      'OpenCodeAuthOptions(endpointBinding: $endpointBinding, '
+      'maxRequestBytes: $maxRequestBytes, maxResponseBytes: '
+      '$maxResponseBytes)';
 }
 
-/// Source-internal transport capability; intentionally omitted from the barrel.
-String openCodeTransportApiKey(OpenCodeAuthOptions options) => options._apiKey;
+void _validateLimits(int maxRequestBytes, int maxResponseBytes) {
+  if (maxRequestBytes <= 0 ||
+      maxRequestBytes > openCodeAbsoluteMaxRequestBytes) {
+    throw const OpenCodeConfigurationException('max_request_bytes');
+  }
+  if (maxResponseBytes <= 0 ||
+      maxResponseBytes > openCodeAbsoluteMaxResponseBytes) {
+    throw const OpenCodeConfigurationException('max_response_bytes');
+  }
+}
 
 String _validateApiKey(String value) {
   if (value.isEmpty || value.trim() != value || _hasAsciiControl(value)) {

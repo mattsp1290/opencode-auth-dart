@@ -5,7 +5,11 @@ import 'dart:math';
 
 import 'package:http/io_client.dart';
 import 'package:opencode_auth/opencode_auth.dart';
+import 'package:opencode_auth/src/auth.dart'
+    show createOpenCodeAuthClientForTesting;
 import 'package:test/test.dart';
+
+import 'support/counting_client.dart';
 
 const _model = 'deepseek-v4-flash';
 const _timeout = Duration(seconds: 90);
@@ -29,16 +33,19 @@ void main() {
         (_) => Random.secure().nextInt(256),
       ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
       final httpClient = IOClient(HttpClient());
-      final auth = OpenCodeAuthClient(
+      const userAgent = 'opencode-auth-dart-live-test/0.1.0';
+      final countingClient = CountingClient(httpClient);
+      final auth = createOpenCodeAuthClientForTesting(
         OpenCodeAuthOptions(
           apiKey: apiKey,
           client: httpClient,
-          userAgent: 'opencode-auth-dart-live-test/0.1.0',
+          userAgent: userAgent,
         ),
+        countingClient,
       );
       addTearDown(() async {
         await auth.close();
-        httpClient.close();
+        countingClient.close();
       });
 
       stdout.writeln('live stage=tool-request model=$_model protocol=chat');
@@ -72,6 +79,9 @@ void main() {
         'max_tokens': 256,
         'stream': false,
       });
+      expect(countingClient.dispatchCount, 1);
+      expect(countingClient.hasStableSession, isTrue);
+      expect(countingClient.hasStableUserAgent, isTrue);
       final firstChoice = _firstChoice(first);
       final assistant = _objectMap(firstChoice['message']);
       final toolCalls = assistant['tool_calls'];
@@ -104,6 +114,9 @@ void main() {
         'max_tokens': 256,
         'stream': false,
       });
+      expect(countingClient.dispatchCount, 2);
+      expect(countingClient.hasStableSession, isTrue);
+      expect(countingClient.hasStableUserAgent, isTrue);
       final secondChoice = _firstChoice(second);
       final finalMessage = _objectMap(secondChoice['message']);
       if (finalMessage['content'] is! String ||
@@ -138,6 +151,7 @@ void main() {
             ),
           )
           .timeout(_timeout);
+      expect(countingClient.dispatchCount, 3);
       final streamedBytes = await streaming.stream
           .expand((chunk) => chunk)
           .toList()
@@ -150,55 +164,40 @@ void main() {
 
       stdout.writeln('live stage=cancel model=$_model protocol=chat');
       final source = OpenCodeCancellationSource();
-      final cancellable = await auth
-          .send(
-            OpenCodeInferenceRequest(
-              protocol: OpenCodeProtocol.chatCompletions,
-              conversationId: session,
-              body: utf8.encode(
-                jsonEncode({
-                  'model': _model,
-                  'messages': [
-                    {
-                      'role': 'user',
-                      'content': 'Count slowly from one to ten.',
-                    },
-                  ],
-                  'max_tokens': 256,
-                  'stream': true,
-                }),
-              ),
-              headers: const {
-                'content-type': 'application/json',
-                'accept': 'text/event-stream',
-              },
-              cancellationToken: source.token,
-            ),
-          )
-          .timeout(_timeout);
-      final cancellationResult = Completer<OpenCodeAuthException?>();
-      late final StreamSubscription<List<int>> subscription;
-      subscription = cancellable.stream.listen(
-        (_) => source.cancel(),
-        onError: (Object error) {
-          if (!cancellationResult.isCompleted) {
-            cancellationResult.complete(
-              error is OpenCodeAuthException ? error : null,
-            );
-          }
-        },
-        onDone: () {
-          if (!cancellationResult.isCompleted) cancellationResult.complete();
-        },
+      countingClient.holdNextResponse();
+      final cancellable = auth.send(
+        OpenCodeInferenceRequest(
+          protocol: OpenCodeProtocol.chatCompletions,
+          conversationId: session,
+          body: utf8.encode(
+            jsonEncode({
+              'model': _model,
+              'messages': [
+                {'role': 'user', 'content': 'Count slowly from one to ten.'},
+              ],
+              'max_tokens': 256,
+              'stream': true,
+            }),
+          ),
+          headers: const {
+            'content-type': 'application/json',
+            'accept': 'text/event-stream',
+          },
+          cancellationToken: source.token,
+        ),
       );
-      final cancellationError = await cancellationResult.future.timeout(
-        _timeout,
-      );
-      await subscription.cancel();
-      if (cancellationError is! OpenCodeCancelledException) {
-        stdout.writeln('live stage=cancel result=inconclusive');
-      } else {
-        stdout.writeln('live stage=cancel result=cancelled pass=true');
+      try {
+        await countingClient.heldDispatchStarted.timeout(_timeout);
+        expect(countingClient.dispatchCount, 4);
+        source.cancel();
+        await expectLater(
+          cancellable.timeout(_timeout),
+          throwsA(isA<OpenCodeCancelledException>()),
+        );
+        expect(countingClient.dispatchCount, 4);
+        stdout.writeln('live stage=cancel dispatches=1 pass=true');
+      } finally {
+        countingClient.releaseHeldResponse();
       }
     },
     skip: enabled ? false : 'Set OPENCODE_AUTH_LIVE_TEST=true to run.',

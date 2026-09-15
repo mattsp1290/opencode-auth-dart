@@ -23,6 +23,23 @@ dimension but fail locally; they are not supported dispatch routes. Catalog
 visibility is descriptive metadata, not proof of entitlement, tool support, or
 route compatibility.
 
+## Endpoint binding
+
+Default construction is the only way to create a subscription-bound client.
+Providers that receive a borrowed client should inspect the safe enum before
+they construct or send a request:
+
+```dart
+if (auth.endpointBinding != OpenCodeEndpointBinding.subscriptionGo) {
+  throw StateError('This provider requires an OpenCode Go subscription client.');
+}
+```
+
+`OpenCodeAuthOptions.custom(serviceRoot: ...)` is available for hermetic tests
+and intentional custom consumers. It always reports
+`OpenCodeEndpointBinding.custom`, including if supplied the production route as
+text. The endpoint URL and credential are never exposed by the public API.
+
 ## Usage
 
 ```dart
@@ -91,6 +108,7 @@ dart pub get
 dart format --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 dart test
+dart doc --validate-links
 dart pub publish --dry-run
 ```
 

@@ -58,6 +58,11 @@ unlinked_spec.ds
 **/android/key.properties
 *.jks
 
+# The mobile smoke fixture keeps its reproducible Gradle wrapper under review.
+!example/mobile_smoke/android/gradlew
+!example/mobile_smoke/android/gradlew.bat
+!example/mobile_smoke/android/gradle/wrapper/gradle-wrapper.jar
+
 # iOS/XCode related
 **/ios/**/*.mode1v3
 **/ios/**/*.mode2v3

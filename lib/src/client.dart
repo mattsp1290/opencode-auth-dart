@@ -1,15 +1,4 @@
-import 'dart:async';
-
-import 'package:http/http.dart' as http;
-
-import 'cancellation.dart';
-import 'catalog.dart';
-import 'errors.dart';
-import 'options.dart';
-import 'protocol.dart';
-import 'request.dart';
-import 'response.dart';
-import 'transport.dart';
+part of 'auth.dart';
 
 final class OpenCodeAuthClient {
   OpenCodeAuthClient(OpenCodeAuthOptions options)
@@ -23,6 +12,8 @@ final class OpenCodeAuthClient {
   final Set<OpenCodeOperation> _operations = <OpenCodeOperation>{};
   bool _closed = false;
   Future<void>? _closeFuture;
+
+  OpenCodeEndpointBinding get endpointBinding => _options.endpointBinding;
 
   Future<OpenCodeStreamResponse> send(
     OpenCodeInferenceRequest inferenceRequest,
@@ -48,7 +39,7 @@ final class OpenCodeAuthClient {
           ..bodyBytes = inferenceRequest.body;
     request.headers
       ..addAll(inferenceRequest.headers)
-      ..['authorization'] = 'Bearer ${openCodeTransportApiKey(_options)}'
+      ..['authorization'] = 'Bearer ${_options._apiKey}'
       ..['user-agent'] = _options.userAgent
       ..['x-opencode-session'] = inferenceRequest.conversationId;
 
@@ -320,7 +311,7 @@ final class OpenCodeAuthClient {
     );
   }
 
-  Uri _route(String suffix) => Uri.parse('${_options.serviceRoot}/$suffix');
+  Uri _route(String suffix) => Uri.parse('${_options._serviceRoot}/$suffix');
 }
 
 /// Internal test seam. It is intentionally omitted from the public barrel.
