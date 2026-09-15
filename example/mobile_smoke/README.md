@@ -13,7 +13,7 @@ Required target tuple:
 From this directory:
 
 ```sh
-flutter create --platforms=android,ios .
+flutter create --platforms=android,ios --project-name opencode_auth_mobile_smoke --org com.mattsp1290 .
 flutter pub get
 flutter analyze
 flutter test
